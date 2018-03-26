@@ -1,0 +1,34 @@
+<div
+  class="dsl-input"
+  contenteditable="true"
+  spellcheck="false"
+  (focus)="onFocus()"
+  (keydown)="onKeydown($event)"
+  (keyup)="onKeypress($event)"
+  (click)="onClick()"
+  #editableContent
+></div>
+
+<div
+  class="dropdown"
+  *ngIf="inputActive && activeToken && activeToken.conf.valueSource">
+  <app-dropdown
+    [tokenConf]="activeToken.conf"
+    [statement]="activeStatement"
+    [keyboardEvents]="keyboardEvents"
+    [filter]="activeToken.token"
+    (onValue)="updateActiveTokenValue($event)">
+  </app-dropdown>
+</div>
+
+<pre>
+  caret: {{caretPos}}
+  total length: {{contentLength}}
+</pre>
+
+<pre>
+current token:
+{{activeToken | json}}
+</pre>
+
+

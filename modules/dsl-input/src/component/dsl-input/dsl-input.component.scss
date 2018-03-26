@@ -1,0 +1,38 @@
+.dsl-input {
+  font-family: monospace;
+  font-size : 1.2em;
+  white-space: pre;
+  border: 1px solid #ccc;
+  padding: 10px 5px;
+
+  .statement {
+    border: 1px solid #ccc;
+    background-color: #f6f6f6;
+    margin-right: 5px;
+    padding: 5px;
+
+    &.error {
+
+    }
+
+    .unknown {
+      color: #f00;
+    }
+
+    .identifier {
+      color: #73afea;
+    }
+
+    .comparison {
+      color: orange;
+    }
+
+    .value {
+      color: darkolivegreen;
+    }
+
+    .error {
+      border-bottom: 1px solid #f00;
+    }
+  }
+}
