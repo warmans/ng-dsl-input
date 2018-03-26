@@ -5,6 +5,9 @@ import {Observable} from 'rxjs/Observable';
 // http://codemirror.net/1/story.html
 // https://www.codeproject.com/Questions/897645/Replacing-selected-text-HTML-JavaScript
 
+const spaceTok = 'whitespace';
+const unknownTok = 'unknown';
+
 @Component({
   selector: 'dsl-input',
   templateUrl: './dsl-input.component.html',
@@ -17,13 +20,12 @@ export class DSLInputComponent implements OnInit {
   editableContent: ElementRef;
 
   @Input()
-  statementConfig: StatementConfig = {
-    statementFormat: ['identifier', 'comparison', 'value'],
-    defaultTokenName: 'unknown',
-    tokenConfig: [
+  statementConfig: StatementConfig = new StatementConfig(
+    ['identifier', 'comparison', 'value'],
+    [
       {
         name: 'identifier',
-        pattern: /^[a-zA-Z][a-zA-Z0-9_]+/,
+        pattern: /^[a-zA-Z]+[a-zA-Z0-9_]*/,
         valueSource: (context: Statement, query: string, page: number, pagesize: number): Observable<string[]> => {
           const values = [];
           for (let i = 0; i <= 100; i++) {
@@ -44,7 +46,7 @@ export class DSLInputComponent implements OnInit {
         pattern: /([0-9]+|\"[^"]*\")/,
         valueSource: (context: Statement, query: string, page: number, pagesize: number): Observable<string[]> => {
           const values = [];
-          const identVal = context.tokens[0] ? context.tokens[0].token : '';
+          const identVal = firstToken(context) ? firstToken(context).token : '';
           for (let i = 0; i <= 100; i++) {
             values.push('"' + (identVal + i) + '"');
           }
@@ -52,18 +54,19 @@ export class DSLInputComponent implements OnInit {
         }
       }
     ]
-  };
+  );
 
   inputActive = false;
 
   keyboardEvents: EventEmitter<KeyboardEvent> = new EventEmitter();
 
-  displayDropdown = true;
-
+  // current state of element
   statements: Statement[] = [];
   activeToken: Token = null;
   activeStatement: Statement = null;
-  predictedNextToken: TokenConfig = null;
+
+  // predicts what the user must input next
+  predictedNextToken: Token = null;
 
   caretPos: number;
   contentLength: number;
@@ -98,7 +101,10 @@ export class DSLInputComponent implements OnInit {
   }
 
   onKeypress(evt: KeyboardEvent) {
+
+    // todo: should only update if the key is a valid one (i.e. not shift or something)
     this.update();
+
     // forward event to any other components e.g. value-list
     this.keyboardEvents.next(evt);
   }
@@ -108,6 +114,7 @@ export class DSLInputComponent implements OnInit {
 
     this.saveCaretPosition(this.editableContent.nativeElement);
     this.findActiveElements();
+    this.predictNextToken();
 
     // update UI
     this.render();
@@ -135,14 +142,57 @@ export class DSLInputComponent implements OnInit {
   }
 
   findActiveElements() {
+    this.activeToken = null;
+    this.activeStatement = null;
+
     this.statements.forEach(stmnt => {
       stmnt.tokens.forEach(tok => {
         if (this.caretPos >= tok.start && this.caretPos <= tok.end) {
-          this.activeToken = tok;
+          if (tok.type !== spaceTok && tok.type !== unknownTok) {
+            this.activeToken = tok;
+          }
           this.activeStatement = stmnt;
         }
       });
     });
+
+    if (!this.activeStatement) {
+      this.activeStatement = this.statements[this.statements.length - 1];
+    }
+  }
+
+  predictNextToken() {
+
+    this.predictedNextToken = null;
+
+    // if there is no active statement then this is the first token in the statement
+    if (!this.activeStatement) {
+      const firstToken = this.statementConfig.statementFormat[0];
+      this.predictedNextToken = <Token>{
+        start: this.caretPos,
+        end: this.caretPos,
+        type: firstToken,
+        token: '',
+        conf: this.statementConfig.configFor(firstToken),
+      };
+      return;
+    }
+
+    const realStatementLength = statementLength(this.activeStatement);
+
+    // no more parts to statement
+    if (this.statementConfig.statementFormat.length === realStatementLength) {
+      return;
+    }
+
+    const nextTokenType = this.statementConfig.statementFormat[realStatementLength];
+    this.predictedNextToken = <Token>{
+      start: this.caretPos,
+      end: this.caretPos,
+      type: nextTokenType,
+      token: '',
+      conf: this.statementConfig.configFor(nextTokenType)
+    };
   }
 
   render() {
@@ -150,7 +200,7 @@ export class DSLInputComponent implements OnInit {
     this.statements.forEach((statement) => {
 
       const stmntEl = this.renderer.createElement('span');
-      stmntEl.className = 'statement' + (statement.error ? ' error' : '') ;
+      stmntEl.className = 'statement' + (statement.error ? ' error' : '') + (statement.incomplete ? ' incomplete' : '');
 
       statement.tokens.forEach((tok) => {
         const tokEl = this.renderer.createElement('span');
@@ -211,7 +261,6 @@ export class DSLInputComponent implements OnInit {
     if (!this.activeToken) {
       return;
     }
-    console.log('update token value');
     const strVal = value.join(',');
     this.editableContent.nativeElement.textContent = spliceString(
       this.editableContent.nativeElement.textContent,
@@ -225,7 +274,16 @@ export class DSLInputComponent implements OnInit {
 
     this.update();
   }
+
+  appendToken(value: string[]) {
+    this.editableContent.nativeElement.textContent += value.join(',');
+
+    // move caret to end of the new token
+    this.moveCaretTo(this.editableContent.nativeElement.textContent.length);
+    this.update();
+  }
 }
+
 
 function getTextNodeAtPosition(root, index) {
   let lastNode = null;
@@ -251,7 +309,7 @@ function tokenize(text: string, parsers: TokenConfig[], deftok: string): Token[]
   while (text) {
     t = null;
     m = text.length;
-    (parsers || []).concat([{name: 'whitespace', pattern: /\s+/}]).forEach(p => {
+    (parsers || []).concat([{name: spaceTok, pattern: /\s+/}]).forEach(p => {
       matches = p.pattern.exec(text);
       // try to choose the best match if there are several
       // where "best" is the closest to the current starting point
@@ -291,13 +349,21 @@ function parse(config: StatementConfig, tokens: Token[]): Statement[] {
 
   tokens.forEach((tok) => {
 
-    curStatment = (curStatment === null) ? {tokens: [], error: '', conf: config} : curStatment;
-
     // ignore whitespace in length of statement
-    const realStatementLength = curStatment.tokens.filter(t => t.type !== 'whitespace' && !t.invalid).length;
+    const realStatementLength = statementLength(curStatment);
+
+    // statement is complete
+    if (realStatementLength === config.statementFormat.length) {
+      curStatment.incomplete = false;
+      statements.push(curStatment);
+      curStatment = null;
+    }
+
+    curStatment = (curStatment === null) ? {tokens: [], error: '', conf: config, incomplete: true} : curStatment;
+
 
     const expectedType = config.statementFormat[realStatementLength];
-    if (tok.type !== 'whitespace' && tok.type !== expectedType) {
+    if (tok.type !== spaceTok && tok.type !== expectedType) {
       curStatment.error = `expected ${expectedType} but encountered ${tok.type}`;
       tok.invalid = true;
       curStatment.tokens.push(tok);
@@ -305,11 +371,6 @@ function parse(config: StatementConfig, tokens: Token[]): Statement[] {
     }
     curStatment.tokens.push(tok);
 
-    // statement is complete
-    if (realStatementLength === config.statementFormat.length) {
-      statements.push(curStatment);
-      curStatment = null;
-    }
   });
 
   if (curStatment !== null) {
@@ -338,10 +399,25 @@ export interface Token {
   invalid?: boolean;
 }
 
-export interface StatementConfig {
+export class StatementConfig {
   statementFormat: string[];
   tokenConfig: TokenConfig[];
-  defaultTokenName?: string;
+  defaultTokenName = 'unknown';
+
+  constructor(format: string[], tokenConfig: TokenConfig[]) {
+    this.statementFormat = format;
+    this.tokenConfig = tokenConfig;
+  }
+
+  configFor(tokenType: string): TokenConfig {
+    let conf: TokenConfig = null;
+    this.tokenConfig.forEach(t => {
+      if (t.name === tokenType) {
+        conf = t;
+      }
+    });
+    return conf;
+  }
 }
 
 export interface TokenConfig {
@@ -355,4 +431,33 @@ export interface Statement {
   tokens: Token[];
   error: string;
   conf?: StatementConfig;
+  incomplete?: boolean;
+}
+
+
+function statementLength(s: Statement): number {
+  if (!s) {
+    return 0;
+  }
+  let total = 0;
+  s.tokens.forEach(t => {
+    if (t.type !== spaceTok && !t.invalid) {
+      total++;
+    }
+  });
+  return total;
+}
+
+
+function firstToken(s: Statement): Token {
+  if (!s) {
+    return null;
+  }
+  let tok: Token  = null;
+  s.tokens.forEach(t => {
+    if (tok == null && t.type !== spaceTok && !t.invalid) {
+      tok = t;
+    }
+  });
+  return tok;
 }

@@ -11,13 +11,25 @@
 
 <div
   class="dropdown"
-  *ngIf="inputActive && activeToken && activeToken.conf.valueSource">
+  *ngIf="inputActive && activeStatement && activeToken && activeToken.conf.valueSource">
   <app-dropdown
     [tokenConf]="activeToken.conf"
     [statement]="activeStatement"
     [keyboardEvents]="keyboardEvents"
     [filter]="activeToken.token"
     (onValue)="updateActiveTokenValue($event)">
+  </app-dropdown>
+</div>
+
+<div
+  class="dropdown"
+  *ngIf="inputActive && !activeToken && predictedNextToken && predictedNextToken.conf.valueSource">
+  <app-dropdown
+    [tokenConf]="predictedNextToken.conf"
+    [statement]="activeStatement"
+    [keyboardEvents]="keyboardEvents"
+    [filter]="predictedNextToken.token"
+    (onValue)="appendToken($event)">
   </app-dropdown>
 </div>
 
@@ -29,6 +41,13 @@
 <pre>
 current token:
 {{activeToken | json}}
+
+current statement:
+{{statements | json}}
 </pre>
 
 
+<pre>
+predicated next token:
+{{predictedNextToken | json}}
+</pre>

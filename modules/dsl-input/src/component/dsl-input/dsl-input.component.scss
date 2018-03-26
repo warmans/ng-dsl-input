@@ -15,6 +15,11 @@
 
     }
 
+    &.incomplete {
+      background-color: #fff;
+      border-color: #fff;
+    }
+
     .unknown {
       color: #f00;
     }
